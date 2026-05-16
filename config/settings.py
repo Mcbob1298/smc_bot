@@ -25,6 +25,13 @@ class Settings(BaseSettings):
         default=["XAUUSD", "BTCUSDT"],
         description="Trading symbols",
     )
+    mt5_symbol_map: dict[str, str] = Field(
+        default={"XAUUSD": "XAUUSD"},
+        description=(
+            "Mapping of canonical symbol names to broker-specific MT5 names. "
+            "E.g. {'XAUUSD': 'GOLD'} if your broker uses 'GOLD' instead."
+        ),
+    )
 
     # Timeframes hierarchy
     htf_timeframes: list[str] = Field(
