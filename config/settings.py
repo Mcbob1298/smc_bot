@@ -56,7 +56,18 @@ class Settings(BaseSettings):
         description="Directory for log files",
     )
 
+    # Binance (optional, for BTCUSDT)
+    binance_api_key: str = Field(default="", description="Binance API key (optional)")
+    binance_api_secret: str = Field(default="", description="Binance API secret (optional)")
+
+    # Logging
+    log_level: str = Field(default="INFO", description="Log level (DEBUG, INFO, WARNING, ERROR)")
+
     # Data history
+    data_start_date: str = Field(
+        default="2021-01-01",
+        description="Start date for historical data download (ISO format)",
+    )
     history_years: int = Field(
         default=5,
         description="Number of years of historical data to download",

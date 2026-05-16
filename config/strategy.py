@@ -14,7 +14,7 @@ class SwingConfig(BaseModel):
         description="Number of bars for fractal pattern (3 = classic 3-bar fractal)",
     )
     atr_filter_enabled: bool = Field(
-        default=False,
+        default=True,
         description="Filter out swings smaller than ATR threshold",
     )
     atr_filter_ratio: float = Field(
@@ -50,6 +50,20 @@ class OrderBlockConfig(BaseModel):
     first_retest_only: bool = Field(
         default=True,
         description="Only trade the first retest (mitigation) of an OB",
+    )
+    wick_touch_counts_as_mitigation: bool = Field(
+        default=False,
+        description=(
+            "If False, only a candle closing inside OB zone counts as mitigation "
+            "(not a wick-only touch)"
+        ),
+    )
+    body_or_full_range: str = Field(
+        default="full_range",
+        description=(
+            "OB zone definition: 'full_range' (high-low of candle) "
+            "or 'body' (open-close only)"
+        ),
     )
 
 
@@ -110,14 +124,23 @@ class RiskConfig(BaseModel):
         default=2,
         description="Maximum number of simultaneous open trades",
     )
+    tp2_target_mode: str = Field(
+        default="next_htf_liquidity",
+        description=(
+            "TP2 targeting mode: "
+            "'next_htf_liquidity' (next opposing liquidity on HTF), "
+            "'fixed_rr' (fixed RR multiple from entry), "
+            "'structure' (next HTF structure level)"
+        ),
+    )
 
 
 class StopLossConfig(BaseModel):
     """Stop loss buffer parameters."""
 
-    buffer_xau_pips: float = Field(
-        default=2.0,
-        description="SL buffer in pips for XAUUSD (1 pip = 0.10$)",
+    buffer_xau_usd: float = Field(
+        default=0.20,
+        description="SL buffer for XAUUSD in absolute USD (e.g. 0.20 = 20 cents beyond OB edge)",
     )
     buffer_btc_pct: float = Field(
         default=0.05,
@@ -152,7 +175,19 @@ class EntryConfig(BaseModel):
     )
     entry_mode: str = Field(
         default="ob_or_50pct",
-        description="Entry mode: 'ob_or_50pct' (OB LTF or 50% retracement)",
+        description="Entry mode: 'ob_or_50pct' (OB LTF or 50% retracement of micro-impulse)",
+    )
+    retracement_pct: float = Field(
+        default=0.5,
+        description="Retracement level of the micro-impulse after LTF ChoCh (0.5 = 50%)",
+    )
+    ltf_timeframe_xau: str = Field(
+        default="M1",
+        description="LTF timeframe for XAUUSD entry confirmation",
+    )
+    ltf_timeframe_btc: str = Field(
+        default="M5",
+        description="LTF timeframe for BTCUSDT entry confirmation (M1 too noisy for BTC)",
     )
 
 
