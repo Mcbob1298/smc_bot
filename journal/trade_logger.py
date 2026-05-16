@@ -1,0 +1,1 @@
+"""Structured JSON trade logging."""
