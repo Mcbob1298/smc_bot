@@ -46,17 +46,17 @@ Methodological ambiguities and design decisions resolved before implementation.
 
 ### [Q-006] Multi-position dans la même killzone ?
 - **Context**: Si un premier trade est stoppé dans une killzone, peut-on reprendre un deuxième trade dans la même session ?
-- **Decision**: Maximum 1 trade par killzone par symbole. Si stoppé, attendre la prochaine KZ.
+- **Decision**: Maximum 1 trade par killzone. Si stoppé, attendre la prochaine KZ.
 - **Rationale**: Anti-revenge trading. Un stop dans une KZ signifie que notre lecture de la session était incorrecte — persister augmente le drawdown sans edge supplémentaire.
-- **Status**: Resolved
+- **Status**: Resolved — Updated (V1 scope: XAU only)
 
 ---
 
-### [Q-007] Gestion du weekend gap (XAU ferme vendredi, BTC 24/7)
+### [Q-007] Gestion du weekend gap (XAU ferme vendredi)
 - **Context**: XAUUSD ferme le vendredi ~23h et rouvre dimanche ~23h (heure Paris). Un gap significatif peut se former.
-- **Decision**: XAU — clôturer toute position à 22h30 Paris vendredi. Pas de nouveau trade après 18h00 Paris vendredi. BTC — pas de contrainte weekend mais flag warning si trade ouvert (liquidité réduite).
+- **Decision**: Clôturer toute position à 22h30 Paris vendredi. Pas de nouveau trade après 18h00 Paris vendredi.
 - **Rationale**: Le gap risk du weekend est non-rémunéré et peut effacer plusieurs jours de gains. Mieux vaut être flat.
-- **Status**: Resolved
+- **Status**: Resolved — Updated (V1 scope: XAU only)
 
 ---
 
@@ -112,9 +112,7 @@ Methodological ambiguities and design decisions resolved before implementation.
 - **Context**: Les specs disent "tenir compte du spread broker dans le calcul d'entrée". Le spread XAU varie selon horaire. Le slippage est souvent ignoré mais critique pour les stratégies SMC qui entrent sur des mouvements rapides.
 - **Decision**: Spread variable par session + slippage séparé obligatoire.
   - Spread XAU : London KZ = 2.5 pips, NY KZ = 2.0 pips, hors KZ = 4.0 pips
-  - Spread BTC : fixe 0.5 bps (Binance taker fee incluse dans le spread effectif)
-  - Commission BTC : 0.04% par côté (Binance taker)
   - Slippage : `0.5 × ATR(M1)` en killzone, `1.0 × ATR(M1)` hors killzone, appliqué à entry ET exit
   - Tous ces paramètres dans `CostsConfig` (configurable pour A/B test)
 - **Rationale**: Le slippage est souvent plus impactant que le spread sur les stratégies SMC qui entrent au moment où le marché bouge fort (cassures de structure, sweeps). L'oublier surestime massivement l'edge. Valeurs conservatrices par défaut — à affiner avec données réelles live.
-- **Status**: Resolved
+- **Status**: Resolved — Updated (V1 scope: XAU only, BTC costs removed)

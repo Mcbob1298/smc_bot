@@ -1,10 +1,23 @@
 # SMC Bot — Smart Money Concept Trading Bot
 
-Algorithmic trading bot implementing the SMC methodology (Kasper Trading) for **XAUUSD** and **BTCUSDT**.
+Algorithmic trading bot implementing the SMC methodology (Kasper Trading) for **XAUUSD**.
 
-## Objective
+## Scope V1
 
-Scientifically backtest the Kasper Trading SMC method to determine if it has a real statistical edge, then deploy in paper trading and micro-real if validated.
+**V1 trades XAUUSD only** via MetaTrader 5. Reasons:
+- SMC is historically more effective on Gold (clear institutional footprint)
+- Simplified architecture: single broker, single data source
+- Focused backtest optimization on one market before expanding
+
+BTC/crypto support (CCXT loader, Binance integration) is fully implemented and archived in `_archived/`. See `_archived/README.md` for reactivation instructions.
+
+### Roadmap V2
+
+- Reactivation BTC/BTCUSDT via CCXT
+- Breaker Blocks (OB inversion)
+- Live health check + auto-reconnect
+- OB quality scoring (confluence points)
+- Multi-symbol risk aggregation
 
 ## Architecture
 
@@ -19,7 +32,8 @@ smc_bot/
 ├── live/            # Live execution (MT5, paper trading)
 ├── journal/         # Trade logging and analysis
 ├── tests/           # Unit tests with manual fixtures
-└── notebooks/       # Exploratory analysis
+├── notebooks/       # Exploratory analysis
+└── _archived/       # Archived BTC/CCXT code (functional, not active)
 ```
 
 ## Setup
@@ -33,7 +47,6 @@ smc_bot/
 ### Installation
 
 ```bash
-# Clone the repository
 cd smc_bot/
 
 # Install dependencies
@@ -59,7 +72,7 @@ uv run mypy config/        # Type checking
 
 Based on Smart Money Concepts as taught by Kasper Trading:
 
-- **Multi-timeframe analysis**: H4 (bias) → M15 (zones) → M1/M5 (entry)
+- **Multi-timeframe analysis**: H4 (bias) → M15 (zones) → M1 (entry)
 - **Structure**: BOS for continuation, ChoCh for reversal
 - **Zones**: Order Blocks validated by FVG + structure break
 - **Entry**: LTF ChoCh confirmation within valid zone during killzone

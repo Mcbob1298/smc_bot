@@ -164,9 +164,15 @@ class CCXTLoader:
         )
 
     def disconnect(self) -> None:
-        """Close the exchange connection."""
+        """Close the exchange connection.
+
+        Handles exchanges that don't implement close() (e.g. some ccxt exchanges
+        only support sync close, or don't have it at all).
+        """
         if self._exchange is not None and self._connected:
-            self._exchange.close()
+            close_fn = getattr(self._exchange, "close", None)
+            if callable(close_fn):
+                close_fn()
             self._connected = False
             logger.info("Disconnected from {}", self._exchange_id)
 

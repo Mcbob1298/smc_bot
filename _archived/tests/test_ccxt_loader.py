@@ -108,6 +108,37 @@ class TestCCXTLoaderConnection:
         mock_exchange.close.assert_called_once()
 
     @patch("data.ingestion.ccxt_loader.ccxt")
+    def test_disconnect_handles_close_method_present(self, mock_ccxt: MagicMock) -> None:
+        """close() is called when it exists on the exchange."""
+        mock_exchange = MagicMock()
+        mock_exchange.markets = {"BTC/USDT": {}}
+        mock_exchange.close = MagicMock()
+        mock_ccxt.binance.return_value = mock_exchange
+
+        loader = CCXTLoader(exchange_id="binance")
+        loader.connect()
+        loader.disconnect()
+
+        assert not loader.is_connected()
+        mock_exchange.close.assert_called_once()
+
+    @patch("data.ingestion.ccxt_loader.ccxt")
+    def test_disconnect_handles_missing_close_method(self, mock_ccxt: MagicMock) -> None:
+        """disconnect() succeeds even if exchange has no close() method."""
+        mock_exchange = MagicMock(spec=[])  # spec=[] → no attributes
+        mock_exchange.markets = {"BTC/USDT": {}}
+        mock_ccxt.binance.return_value = mock_exchange
+
+        loader = CCXTLoader(exchange_id="binance")
+        # Manually set connected state (since spec=[] won't have load_markets)
+        loader._exchange = mock_exchange
+        loader._connected = True
+
+        loader.disconnect()
+
+        assert not loader.is_connected()
+
+    @patch("data.ingestion.ccxt_loader.ccxt")
     def test_context_manager(self, mock_ccxt: MagicMock) -> None:
         mock_exchange = MagicMock()
         mock_exchange.markets = {"BTC/USDT": {}}

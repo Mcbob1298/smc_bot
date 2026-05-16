@@ -167,9 +167,9 @@ class RiskConfig(BaseModel):
         default=2,
         description="Maximum number of simultaneous open trades",
     )
-    max_trades_per_killzone_per_symbol: int = Field(
+    max_trades_per_killzone: int = Field(
         default=1,
-        description="Max trades allowed per killzone session per symbol (anti-revenge)",
+        description="Max trades allowed per killzone session (anti-revenge)",
     )
     xau_friday_close_time: str = Field(
         default="22:30",
@@ -178,10 +178,6 @@ class RiskConfig(BaseModel):
     xau_friday_no_new_trade_after: str = Field(
         default="18:00",
         description="Time (Europe/Paris) after which no new XAU trade on Friday",
-    )
-    btc_weekend_warning: bool = Field(
-        default=True,
-        description="Log warning if BTC trade is open during weekend (low liquidity)",
     )
 
 
@@ -195,10 +191,6 @@ class StopLossConfig(BaseModel):
             "(e.g. 0.20 = 20 cents beyond OB edge)"
         ),
     )
-    buffer_btc_pct: float = Field(
-        default=0.05,
-        description="SL buffer as percentage of price for BTCUSDT",
-    )
 
 
 class CostsConfig(BaseModel):
@@ -209,7 +201,7 @@ class CostsConfig(BaseModel):
     during fast moves (structure breaks, sweeps).
     """
 
-    # Spread (in pips for XAU, in bps for BTC)
+    # Spread (in pips)
     spread_xau_london_pips: float = Field(
         default=2.5,
         description="XAU spread during London KZ (in pips, 1 pip = 0.01$)",
@@ -222,16 +214,7 @@ class CostsConfig(BaseModel):
         default=4.0,
         description="XAU spread outside killzones (in pips)",
     )
-    spread_btc_bps: float = Field(
-        default=0.5,
-        description="BTC effective spread in basis points (Binance taker)",
-    )
-
     # Commission
-    commission_btc_pct_per_side: float = Field(
-        default=0.04,
-        description="BTC commission per side in percent (Binance taker = 0.04%)",
-    )
     commission_xau_per_lot: float = Field(
         default=0.0,
         description="XAU commission per lot (most CFD brokers = 0, spread only)",
@@ -287,13 +270,9 @@ class EntryConfig(BaseModel):
         default=0.5,
         description="Retracement level of the micro-impulse after LTF ChoCh (0.5 = 50%)",
     )
-    ltf_timeframe_xau: str = Field(
+    ltf_timeframe: str = Field(
         default="M1",
         description="LTF timeframe for XAUUSD entry confirmation",
-    )
-    ltf_timeframe_btc: str = Field(
-        default="M5",
-        description="LTF timeframe for BTCUSDT entry confirmation (M1 too noisy)",
     )
 
 

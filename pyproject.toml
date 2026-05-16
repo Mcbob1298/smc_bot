@@ -13,13 +13,15 @@ dependencies = [
     "loguru>=0.7",
     "python-dotenv>=1.0",
     "MetaTrader5>=5.0.45",
-    "ccxt>=4.0",
     "tenacity>=8.2",
     "matplotlib>=3.7",
     "plotly>=5.15",
 ]
 
 [project.optional-dependencies]
+crypto = [
+    "ccxt>=4.0",
+]
 backtest = [
     "vectorbt>=0.26",
     "backtesting>=0.3.3",
@@ -42,6 +44,7 @@ packages = ["config", "data", "detectors", "strategy", "risk", "backtest", "live
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+exclude = ["_archived"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP"]
@@ -52,7 +55,9 @@ strict = false
 ignore_missing_imports = true
 warn_return_any = true
 warn_unused_configs = true
+exclude = ["_archived/"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+norecursedirs = ["_archived", ".venv", "__pycache__"]

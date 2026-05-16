@@ -1315,7 +1315,6 @@ name = "smc-bot"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "ccxt" },
     { name = "loguru" },
     { name = "matplotlib" },
     { name = "metatrader5" },
@@ -1334,6 +1333,9 @@ backtest = [
     { name = "backtesting" },
     { name = "vectorbt" },
 ]
+crypto = [
+    { name = "ccxt" },
+]
 dev = [
     { name = "hypothesis" },
     { name = "mypy" },
@@ -1345,7 +1347,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "backtesting", marker = "extra == 'backtest'", specifier = ">=0.3.3" },
-    { name = "ccxt", specifier = ">=4.0" },
+    { name = "ccxt", marker = "extra == 'crypto'", specifier = ">=4.0" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.80" },
     { name = "loguru", specifier = ">=0.7" },
     { name = "matplotlib", specifier = ">=3.7" },
@@ -1364,7 +1366,7 @@ requires-dist = [
     { name = "tenacity", specifier = ">=8.2" },
     { name = "vectorbt", marker = "extra == 'backtest'", specifier = ">=0.26" },
 ]
-provides-extras = ["backtest", "dev"]
+provides-extras = ["crypto", "backtest", "dev"]
 
 [[package]]
 name = "sortedcontainers"
