@@ -206,6 +206,23 @@ class TestCausality:
             added_columns=["true_range"],
         )
 
+    def test_atr_full_prefix_matches_truncated(self) -> None:
+        """Compare ENTIRE prefix (not just last value) at k=25%, 50%, 75%."""
+        df = _make_ohlcv(n=200)
+        full_atr = compute_atr(df, period=14)
+
+        for ratio in [0.25, 0.5, 0.75]:
+            k = int(len(df) * ratio)
+            truncated_atr = compute_atr(df.iloc[:k], period=14)
+            # Compare ALL non-NaN values in the prefix
+            np.testing.assert_allclose(
+                np.asarray(full_atr.iloc[:k]),
+                np.asarray(truncated_atr),
+                rtol=1e-9,
+                equal_nan=True,
+                err_msg=f"Full prefix mismatch at ratio={ratio} (k={k})",
+            )
+
     def test_atr_with_truncation_at_period_boundary(self) -> None:
         """At k=period exactly, ATR[period-1] is identical full vs truncated."""
         df = _make_ohlcv(n=100)
