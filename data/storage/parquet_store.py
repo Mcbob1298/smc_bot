@@ -22,6 +22,7 @@ from loguru import logger
 
 if TYPE_CHECKING:
     from data.ingestion.mt5_loader import MT5Loader
+    from data.storage.data_validator import ValidationReport
 
 # Expected column schema (index is separate)
 PARQUET_SCHEMA: dict[str, str] = {
@@ -121,7 +122,14 @@ class ParquetStore:
                 f"Expected: {sorted(REQUIRED_COLUMNS)}"
             )
 
-    def save(self, df: pd.DataFrame, symbol: str, timeframe: str) -> None:
+    def save(
+        self,
+        df: pd.DataFrame,
+        symbol: str,
+        timeframe: str,
+        validate: bool = True,
+        strict_validation: bool = False,
+    ) -> ValidationReport | None:
         """Save DataFrame to partitioned Parquet files.
 
         Merges with existing data if partitions already exist.
@@ -131,14 +139,34 @@ class ParquetStore:
             df: OHLCV DataFrame with UTC DatetimeIndex named 'timestamp_utc'.
             symbol: Symbol name (e.g. "XAUUSD").
             timeframe: Timeframe (e.g. "M15").
+            validate: Run data validation before saving (default True).
+            strict_validation: If True and validation has errors, raise and don't save.
+
+        Returns:
+            ValidationReport if validate=True, else None.
 
         Raises:
             ParquetStoreSchemaError: If DataFrame schema is invalid.
             ParquetStoreIOError: If write fails.
+            DataValidationError: If strict_validation=True and errors found.
         """
         if df.empty:
             logger.debug("Empty DataFrame, nothing to save for {}/{}", symbol, timeframe)
-            return
+            return None
+
+        # Run OHLCV validation if requested
+        report: ValidationReport | None = None
+        if validate:
+            from data.storage.data_validator import OHLCVValidator
+
+            validator = OHLCVValidator()
+            report = validator.validate(df, symbol, timeframe, strict=strict_validation)
+            if not report.is_valid and strict_validation:
+                # DataValidationError already raised by validator in strict mode
+                # This is a fallback safety net
+                from data.storage.data_validator import DataValidationError
+
+                raise DataValidationError(report.errors[0])
 
         self._validate_schema(df)
 
@@ -173,6 +201,7 @@ class ParquetStore:
             symbol,
             timeframe,
         )
+        return report
 
     def _write_partition(
         self,
