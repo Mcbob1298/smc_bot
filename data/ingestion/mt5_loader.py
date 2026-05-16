@@ -4,7 +4,9 @@ Connects to a local MT5 terminal, downloads OHLCV data by chunks,
 converts timestamps to UTC, and returns clean DataFrames.
 """
 
-from datetime import UTC, datetime
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -66,18 +68,30 @@ class MT5Loader:
         login: int | None = None,
         password: str | None = None,
         server: str | None = None,
+        symbol_map: dict[str, str] | None = None,
+        crypto_symbols: list[str] | None = None,
     ):
         """Initialize with optional MT5 credentials.
 
-        If not provided, reads from config/settings.
+        Args:
+            path: Path to MT5 terminal executable
+            login: MT5 account login number
+            password: MT5 account password
+            server: MT5 broker server name
+            symbol_map: Mapping of canonical names to broker names
+                        (e.g. {"XAUUSD": "GOLD"})
+            crypto_symbols: Symbols to skip weekend sanity check for
+                           (default: ["BTCUSDT", "ETHUSDT"])
         """
         self._path = path
         self._login = login
         self._password = password
         self._server = server
+        self._symbol_map = symbol_map or {}
+        self._crypto_symbols = crypto_symbols or ["BTCUSDT", "ETHUSDT"]
         self._connected = False
 
-    def __enter__(self) -> "MT5Loader":
+    def __enter__(self) -> MT5Loader:
         self.connect()
         return self
 
@@ -128,7 +142,12 @@ class MT5Loader:
             logger.info("Disconnected from MT5")
 
     def is_connected(self) -> bool:
-        """Check if currently connected to MT5."""
+        """Check if currently connected to MT5.
+
+        WARNING: This is a passive flag check, not a live health check.
+        If MT5 terminal crashes after connect(), this still returns True.
+        TODO V2: implement live health check via mt5.terminal_info() with caching.
+        """
         return self._connected
 
     def download_ohlcv(
@@ -165,15 +184,20 @@ class MT5Loader:
 
         mt5_tf = TIMEFRAME_MAP[timeframe]
 
+        # Resolve broker-specific symbol name via symbol_map
+        broker_symbol = self._symbol_map.get(symbol, symbol)
+        if broker_symbol != symbol:
+            logger.info("Resolved {} → {} via mt5_symbol_map", symbol, broker_symbol)
+
         # Verify symbol exists
-        symbol_info = mt5.symbol_info(symbol)
+        symbol_info = mt5.symbol_info(broker_symbol)
         if symbol_info is None:
             raise MT5DataError(
-                f"Symbol '{symbol}' not found. "
+                f"Symbol '{broker_symbol}' (mapped from '{symbol}') not found. "
                 "Check broker naming (XAUUSD, GOLD, XAUUSDm, etc.)"
             )
         if not symbol_info.visible:
-            mt5.symbol_select(symbol, True)
+            mt5.symbol_select(broker_symbol, True)
 
         # Ensure dates are UTC-aware
         if start_date.tzinfo is None:
@@ -196,7 +220,7 @@ class MT5Loader:
         total_bars = 0
 
         while chunk_end > start_date:
-            rates = mt5.copy_rates_range(symbol, mt5_tf, start_date, chunk_end)
+            rates = mt5.copy_rates_range(broker_symbol, mt5_tf, start_date, chunk_end)
 
             if rates is None or len(rates) == 0:
                 error = mt5.last_error()
@@ -246,6 +270,12 @@ class MT5Loader:
         # Filter to exact requested range
         df = df.loc[start_date:end_date]
 
+        # Fix 1: Warn if received data doesn't cover the requested range
+        self._warn_if_partial(df, start_date, end_date, symbol, timeframe)
+
+        # Fix 3: Validate timezone sanity (no Sunday bars for forex/metals)
+        self._validate_timezone_sanity(df, symbol)
+
         logger.info(
             "Downloaded {} bars for {} {} [{} → {}]",
             len(df),
@@ -273,6 +303,87 @@ class MT5Loader:
         df = df[["open", "high", "low", "close", "tick_volume", "spread", "real_volume"]]
 
         return df
+
+    @staticmethod
+    def _warn_if_partial(
+        df: pd.DataFrame,
+        start_date: datetime,
+        end_date: datetime,
+        symbol: str,
+        timeframe: str,
+    ) -> None:
+        """Log a warning if the data doesn't cover the full requested range."""
+        if df.empty:
+            return
+
+        actual_start = df.index[0].to_pydatetime()
+        actual_end = df.index[-1].to_pydatetime()
+        actual_span = actual_end - actual_start
+
+        # Check start gap (> 7 days missing at the beginning)
+        if actual_start - start_date > timedelta(days=7):
+            logger.warning(
+                "PARTIAL DATA: Requested {} {} from {} but only got data from {}. "
+                "Broker likely doesn't store deeper history for this timeframe. "
+                "Got {} bars covering {:.0f} days.",
+                symbol,
+                timeframe,
+                start_date.isoformat(),
+                actual_start.isoformat(),
+                len(df),
+                actual_span.total_seconds() / 86400,
+            )
+
+        # Check end gap (> 1 day missing at the end)
+        if end_date - actual_end > timedelta(days=1):
+            logger.warning(
+                "PARTIAL DATA: Requested {} {} until {} but last bar is {}. "
+                "Missing recent data (possible connection issue or market closed).",
+                symbol,
+                timeframe,
+                end_date.isoformat(),
+                actual_end.isoformat(),
+            )
+
+    def _validate_timezone_sanity(self, df: pd.DataFrame, symbol: str) -> None:
+        """Verify no Sunday bars exist for forex/metals (market closed).
+
+        If Sunday bars are found between 00:00-21:00 UTC, it indicates the
+        timestamps are in broker time (UTC+2/+3) instead of UTC.
+
+        Raises:
+            MT5DataError: If Sunday bars detected (timezone leak)
+        """
+        if self._is_crypto(symbol):
+            return  # Crypto trades 24/7, skip check
+
+        if df.empty:
+            return
+
+        # Sunday = weekday 6 in pandas (Monday=0)
+        idx = pd.DatetimeIndex(df.index)
+        sunday_mask = idx.weekday == 6
+        if not sunday_mask.any():
+            return
+
+        # XAU/Forex market opens Sunday ~21:00-22:00 UTC.
+        # Bars before 21:00 UTC on Sunday are impossible.
+        sunday_bars = df[sunday_mask]
+        sunday_idx = pd.DatetimeIndex(sunday_bars.index)
+        early_sunday = sunday_bars[sunday_idx.hour < 21]
+
+        if not early_sunday.empty:
+            raise MT5DataError(
+                f"Timezone sanity check failed for {symbol}: found "
+                f"{len(early_sunday)} bars on Sunday before 21:00 UTC. "
+                f"First offending bar: {early_sunday.index[0]}. "
+                "This suggests timestamps are in broker time (UTC+2/+3) "
+                "instead of UTC. Check MT5 terminal timezone settings."
+            )
+
+    def _is_crypto(self, symbol: str) -> bool:
+        """Check if a symbol is a crypto pair (skip weekend checks)."""
+        return symbol.upper() in [s.upper() for s in self._crypto_symbols]
 
     def get_available_symbols(self, pattern: str = "*XAU*") -> list[str]:
         """List available symbols matching a pattern (useful to find XAU naming)."""

@@ -5,17 +5,30 @@ Run `scripts/test_mt5_loader.py` manually on Windows with MT5 running for integr
 """
 
 from datetime import UTC, datetime
+from io import StringIO
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
 import pytest
+from loguru import logger
 
 from data.ingestion.mt5_loader import (
     MT5ConnectionError,
     MT5DataError,
     MT5Loader,
 )
+
+_RATES_DTYPE = np.dtype([
+    ("time", "i8"),
+    ("open", "f8"),
+    ("high", "f8"),
+    ("low", "f8"),
+    ("close", "f8"),
+    ("tick_volume", "i8"),
+    ("spread", "i4"),
+    ("real_volume", "i8"),
+])
 
 
 def _make_fake_rates(n: int, start_ts: int = 1700000000, interval: int = 900) -> np.ndarray:
@@ -26,17 +39,7 @@ def _make_fake_rates(n: int, start_ts: int = 1700000000, interval: int = 900) ->
         start_ts: Starting Unix timestamp
         interval: Seconds between bars (900 = M15)
     """
-    dtype = np.dtype([
-        ("time", "i8"),
-        ("open", "f8"),
-        ("high", "f8"),
-        ("low", "f8"),
-        ("close", "f8"),
-        ("tick_volume", "i8"),
-        ("spread", "i4"),
-        ("real_volume", "i8"),
-    ])
-    rates = np.zeros(n, dtype=dtype)
+    rates = np.zeros(n, dtype=_RATES_DTYPE)
     for i in range(n):
         t = start_ts + i * interval
         o = 1950.0 + i * 0.1
@@ -45,6 +48,33 @@ def _make_fake_rates(n: int, start_ts: int = 1700000000, interval: int = 900) ->
         c = o + 0.2
         rates[i] = (t, o, h, l, c, 100 + i, 20, 0)
     return rates
+
+
+def _make_fake_rates_weekdays_only(
+    n: int, start_ts: int = 1700000000, interval: int = 900
+) -> np.ndarray:
+    """Create fake rates skipping Saturday and early Sunday (realistic for forex).
+
+    Generates bars only on Mon-Fri and Sunday >= 21:00 UTC.
+    """
+    rates_list = []
+    t = start_ts
+    i = 0
+    while len(rates_list) < n:
+        dt = datetime.fromtimestamp(t, tz=UTC)
+        weekday = dt.weekday()
+        # Skip: Saturday (5) entirely, Sunday (6) before 21:00 UTC
+        if weekday == 5 or (weekday == 6 and dt.hour < 21):
+            t += interval
+            continue
+        o = 1950.0 + i * 0.1
+        h = o + 0.5
+        l = o - 0.3  # noqa: E741
+        c = o + 0.2
+        rates_list.append((t, o, h, l, c, 100 + i, 20, 0))
+        t += interval
+        i += 1
+    return np.array(rates_list, dtype=_RATES_DTYPE)
 
 
 class TestMT5LoaderConnection:
@@ -253,3 +283,111 @@ class TestMT5LoaderDownload:
         df = loader.download_ohlcv("XAUUSD", "M15", start, end)
 
         assert not df.index.duplicated().any()
+
+    @patch("data.ingestion.mt5_loader.mt5")
+    @patch("data.ingestion.mt5_loader.TIMEFRAME_MAP", {"M15": 15})
+    def test_download_partial_data_warns(self, mock_mt5: MagicMock) -> None:
+        """Warn when broker returns less history than requested."""
+        mock_mt5.initialize.return_value = True
+        mock_mt5.terminal_info.return_value = MagicMock(name="T", build=1)
+        mock_mt5.symbol_info.return_value = MagicMock(visible=True)
+
+        # Return only ~2 weeks of weekday-only data starting Nov 6 (Monday),
+        # even though we request a full year starting Jan 1
+        fake_rates = _make_fake_rates_weekdays_only(
+            n=1000,
+            start_ts=int(datetime(2023, 11, 6, tzinfo=UTC).timestamp()),
+            interval=900,
+        )
+        mock_mt5.copy_rates_range.return_value = fake_rates
+
+        # WHY: loguru doesn't integrate with pytest caplog.
+        # We add a temporary StringIO sink to capture warnings.
+        log_output = StringIO()
+        sink_id = logger.add(log_output, level="WARNING", format="{message}")
+
+        try:
+            loader = MT5Loader()
+            loader.connect()
+
+            start = datetime(2023, 1, 1, tzinfo=UTC)
+            end = datetime(2023, 12, 1, tzinfo=UTC)
+            df = loader.download_ohlcv("XAUUSD", "M15", start, end)
+
+            assert len(df) == 1000
+
+            log_text = log_output.getvalue()
+            assert "PARTIAL DATA" in log_text
+            assert "2023-01-01" in log_text
+        finally:
+            logger.remove(sink_id)
+
+    @patch("data.ingestion.mt5_loader.mt5")
+    @patch("data.ingestion.mt5_loader.TIMEFRAME_MAP", {"M15": 15})
+    def test_download_uses_symbol_mapping(self, mock_mt5: MagicMock) -> None:
+        """Verify that mt5_symbol_map resolves canonical to broker name."""
+        mock_mt5.initialize.return_value = True
+        mock_mt5.terminal_info.return_value = MagicMock(name="T", build=1)
+        mock_mt5.symbol_info.return_value = MagicMock(visible=True)
+        mock_mt5.copy_rates_range.return_value = _make_fake_rates(50)
+
+        # Map XAUUSD → GOLD
+        loader = MT5Loader(symbol_map={"XAUUSD": "GOLD"})
+        loader.connect()
+
+        start = datetime(2023, 11, 1, tzinfo=UTC)
+        end = datetime(2023, 12, 1, tzinfo=UTC)
+        loader.download_ohlcv("XAUUSD", "M15", start, end)
+
+        # Verify that copy_rates_range was called with "GOLD", not "XAUUSD"
+        call_args = mock_mt5.copy_rates_range.call_args
+        assert call_args[0][0] == "GOLD"
+
+        # Also verify symbol_info was called with "GOLD"
+        mock_mt5.symbol_info.assert_called_with("GOLD")
+
+    @patch("data.ingestion.mt5_loader.mt5")
+    @patch("data.ingestion.mt5_loader.TIMEFRAME_MAP", {"M15": 15})
+    def test_timezone_sanity_detects_sunday_bars(self, mock_mt5: MagicMock) -> None:
+        """Detect broker timezone leak via Sunday bars."""
+        mock_mt5.initialize.return_value = True
+        mock_mt5.terminal_info.return_value = MagicMock(name="T", build=1)
+        mock_mt5.symbol_info.return_value = MagicMock(visible=True)
+
+        # Create bars that include a Sunday at 12:00 UTC (impossible for XAU)
+        # Sunday 2023-11-05 12:00 UTC = timestamp 1699185600
+        sunday_noon_ts = int(datetime(2023, 11, 5, 12, 0, tzinfo=UTC).timestamp())
+        fake_rates = _make_fake_rates(10, start_ts=sunday_noon_ts, interval=900)
+        mock_mt5.copy_rates_range.return_value = fake_rates
+
+        loader = MT5Loader()
+        loader.connect()
+
+        start = datetime(2023, 11, 1, tzinfo=UTC)
+        end = datetime(2023, 12, 1, tzinfo=UTC)
+
+        with pytest.raises(MT5DataError, match="Timezone sanity check failed"):
+            loader.download_ohlcv("XAUUSD", "M15", start, end)
+
+    @patch("data.ingestion.mt5_loader.mt5")
+    @patch("data.ingestion.mt5_loader.TIMEFRAME_MAP", {"M15": 15})
+    def test_timezone_sanity_skips_crypto(self, mock_mt5: MagicMock) -> None:
+        """Crypto symbols skip the Sunday check (24/7 market)."""
+        mock_mt5.initialize.return_value = True
+        mock_mt5.terminal_info.return_value = MagicMock(name="T", build=1)
+        mock_mt5.symbol_info.return_value = MagicMock(visible=True)
+
+        # Sunday bars for BTCUSDT should NOT raise
+        sunday_noon_ts = int(datetime(2023, 11, 5, 12, 0, tzinfo=UTC).timestamp())
+        fake_rates = _make_fake_rates(10, start_ts=sunday_noon_ts, interval=900)
+        mock_mt5.copy_rates_range.return_value = fake_rates
+
+        loader = MT5Loader(crypto_symbols=["BTCUSDT"])
+        loader.connect()
+
+        start = datetime(2023, 11, 1, tzinfo=UTC)
+        end = datetime(2023, 12, 1, tzinfo=UTC)
+
+        # Should not raise — crypto trades on Sundays
+        df = loader.download_ohlcv("BTCUSDT", "M15", start, end)
+        assert len(df) == 10
