@@ -63,9 +63,16 @@ class Settings(BaseSettings):
         description="Directory for log files",
     )
 
-    # Binance (optional, for BTCUSDT)
+    # Binance / CCXT (optional, for BTCUSDT)
     binance_api_key: str = Field(default="", description="Binance API key (optional)")
     binance_api_secret: str = Field(default="", description="Binance API secret (optional)")
+    ccxt_symbol_map: dict[str, str] = Field(
+        default={"BTCUSDT": "BTC/USDT", "ETHUSDT": "ETH/USDT"},
+        description=(
+            "Mapping of canonical symbol names to ccxt format. "
+            "ccxt uses 'BTC/USDT' (with slash) while we use 'BTCUSDT' internally."
+        ),
+    )
 
     # Logging
     log_level: str = Field(default="INFO", description="Log level (DEBUG, INFO, WARNING, ERROR)")

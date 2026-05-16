@@ -14,6 +14,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "MetaTrader5>=5.0.45",
     "ccxt>=4.0",
+    "tenacity>=8.2",
     "matplotlib>=3.7",
     "plotly>=5.15",
 ]
