@@ -16,7 +16,23 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from config.strategy import (
+    FVGConfig,
+    LiquidityConfig,
+    OrderBlockConfig,
+    StructureConfig,
+    SweepConfig,
+    SwingConfig,
+)
+from data.enrichment.atr import compute_atr
 from data.enrichment.time_features import enrich_time_features
+from detectors._common import select_known
+from detectors.fvg import detect_fvgs
+from detectors.liquidity import detect_liquidity
+from detectors.order_blocks import detect_order_blocks
+from detectors.structure import detect_structure
+from detectors.sweeps import detect_sweeps
+from detectors.swings import detect_swings
 
 
 def assert_function_is_causal(
@@ -143,4 +159,66 @@ class TestAntiLookahead:
                 func=leaky_func,
                 df=df,
                 added_columns=["future_mean"],
+            )
+
+
+# ---------------------------------------------------------------------------
+# Detector pipeline causality
+# ---------------------------------------------------------------------------
+
+_NF = SwingConfig(atr_filter_enabled=False, atr_filter_enabled_ltf=False)
+
+
+def _run_detectors(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Run the full SMC detector pipeline on ``df`` and return its event frames."""
+    atr = compute_atr(df, period=14)
+    sw = detect_swings(df, _NF)
+    st = detect_structure(df, sw, StructureConfig())
+    fv = detect_fvgs(df, FVGConfig(), atr)
+    liq = detect_liquidity(df, sw, LiquidityConfig(), atr)
+    swp = detect_sweeps(df, sw, SweepConfig(), atr)
+    ob = detect_order_blocks(
+        df, st, fv, swp,
+        OrderBlockConfig(require_fvg=False, require_prior_liquidity_sweep=False),
+    )
+    return {"swings": sw, "structure": st, "fvg": fv, "liquidity": liq,
+            "sweeps": swp, "order_blocks": ob}
+
+
+class TestDetectorCausality:
+    """The strongest causality check: seeing the future must not change the past.
+
+    For each truncation point k, the events a live system *could have known* by
+    bar k (``select_known(full, ts)``) must be byte-for-byte identical to the
+    events produced when the detector only ever saw ``df[:k]``.
+    """
+
+    def test_pipeline_is_causal(self) -> None:
+        df = _make_utc_df(periods=180)
+        full = _run_detectors(df)
+
+        for ratio in (0.4, 0.6, 0.8):
+            k = int(len(df) * ratio)
+            ts = df.index[k - 1]
+            trunc = _run_detectors(df.iloc[:k])
+
+            for name, full_events in full.items():
+                known = select_known(full_events, ts).sort_index()
+                seen = trunc[name].sort_index()
+                # Identity columns that must not depend on future bars
+                # (expires_at is legitimately clamped to available data).
+                assert list(known.index) == list(seen.index), (
+                    f"{name}: event set differs at ratio={ratio}"
+                )
+                assert list(known["confirmed_at"]) == list(seen["confirmed_at"]), (
+                    f"{name}: confirmed_at differs at ratio={ratio}"
+                )
+
+    def test_every_event_confirmed_at_or_after_its_bar(self) -> None:
+        df = _make_utc_df(periods=180)
+        for name, events in _run_detectors(df).items():
+            if events.empty:
+                continue
+            assert (events["confirmed_at"] >= events.index).all(), (
+                f"{name}: an event is confirmed before the bar it sits on"
             )
