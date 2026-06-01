@@ -16,6 +16,14 @@ Simplifications (honest paper, risk-first):
   - Partial closes use fractional lots (the simulation P&L is linear, so this
     is exact); the real sizer still rounds to broker steps at entry.
 
+KNOWN LIMITATION (must fix before live — see docs/TODO_V2.md "realistic friction
+model"): fills use the exact stop/target price with a single fixed ``slippage``.
+This does NOT model XAU spread widening / slippage around news and session
+opens, so measured demo expectancy sits slightly above reality. Fine for
+proving an edge; not the number that clears the demo->real gate. Consume the
+existing ``CostsConfig`` (variable spread + ATR-scaled slippage) before wiring
+real MT5.
+
 TP ladder: TP1 closes ``tp1_partial_pct`` and moves the stop to break-even;
 with three targets the remainder is split 50/50 across TP2/TP3; with only TP2
 the remainder closes there; with only TP1 the remainder rides to BE/stop.
