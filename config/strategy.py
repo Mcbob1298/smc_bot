@@ -104,9 +104,47 @@ class LiquidityConfig(BaseModel):
     )
 
 
+class StructureConfig(BaseModel):
+    """Break of Structure (BOS) / Change of Character (ChoCh) parameters."""
+
+    break_on_close: bool = Field(
+        default=True,
+        description=(
+            "Confirm a structure break with a candle CLOSE beyond the swing "
+            "(True, robust) vs a wick/high-low touch (False, reactive)"
+        ),
+    )
+    break_buffer_atr_ratio: float = Field(
+        default=0.0,
+        description=(
+            "Extra distance beyond the swing required to count as a break, "
+            "as a ratio of ATR (0 = exact level). Filters marginal pokes."
+        ),
+    )
+
+
+class SweepConfig(BaseModel):
+    """Liquidity sweep (stop-hunt) detection parameters."""
+
+    min_penetration_atr_ratio: float = Field(
+        default=0.05,
+        description="Minimum wick penetration beyond the swept level, as ratio of ATR",
+    )
+    require_close_back: bool = Field(
+        default=True,
+        description=(
+            "Require the candle to close back on the origin side of the swept "
+            "level (rejection). True = stricter, fewer false sweeps."
+        ),
+    )
+    lookback_bars: int = Field(
+        default=30,
+        description="How many bars back a swing level stays eligible to be swept",
+    )
+
+
 class KillzoneConfig(BaseModel):
     """Trading session killzones (times in Europe/Paris)."""
-
     london_start: str = Field(default="08:00", description="London KZ start")
     london_end: str = Field(default="11:00", description="London KZ end")
     ny_start: str = Field(default="13:30", description="New York KZ start")
@@ -289,6 +327,8 @@ class StrategyConfig(BaseModel):
     fvg: FVGConfig = Field(default_factory=FVGConfig)
     order_block: OrderBlockConfig = Field(default_factory=OrderBlockConfig)
     liquidity: LiquidityConfig = Field(default_factory=LiquidityConfig)
+    structure: StructureConfig = Field(default_factory=StructureConfig)
+    sweep: SweepConfig = Field(default_factory=SweepConfig)
     killzones: KillzoneConfig = Field(default_factory=KillzoneConfig)
     bias: BiasConfig = Field(default_factory=BiasConfig)
     risk: RiskConfig = Field(default_factory=RiskConfig)
