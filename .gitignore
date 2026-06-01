@@ -10,6 +10,7 @@ wheels/
 
 # Virtual environment
 .venv/
+.venv_test/
 venv/
 
 # Environment variables
